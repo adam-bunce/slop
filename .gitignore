@@ -1,0 +1,7 @@
+*.out
+/pythonProject
+*.dSYM
+.venv
+.idea
+/summer_2024_research
+

@@ -1,0 +1,1 @@
+stuff from 2nd ed of the k&r c book 
