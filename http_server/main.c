@@ -8,6 +8,16 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <pthread.h>
+#include "files.h"
+
+// TODO:
+// access files in dir server is running
+// shitty UI for files and directories (loop rendering or smth)
+
+char *getheader(char *key) {
+    // legit scan through the entire http request and grab the value matching that and return it lmafo
+    return "";
+}
 
 char *resp =
         "HTTP/1.1 200 OK\r\n"
@@ -37,12 +47,37 @@ int get_port(char *port_str) {
     return port;
 }
 
-void *handle_client(void *thread_id) {
-    return NULL;
+
+// void * _Nullable (* _Nonnull)(void * _Nullable),
+void *handle_client(void *arg) {
+    printf("in handler\n");
+    int ns = (int) (intptr_t) arg;
+    printf("in handler2\n");
+
+    size_t buf_size = 1000 * sizeof(char);
+    char *buf = malloc(buf_size);
+    // get client msg
+    if (recv(ns, buf, buf_size, 0) == -1)
+        error("failed to recv");
+    printf("received from client, '%s'\n", buf);
+
+    ssize_t sent = 0;
+    if ((sent = send(ns, resp, strlen(resp), 0)) == -1)
+        error("Failed to send to client");
+    printf("sent response (%zd)\n", sent);
+
+    printf("%s", resp);
+
+    close(ns);
+    free(buf);
+
+    pthread_exit(NULL);
 }
 
 
 int main(int argc, char **argv) {
+    is_loaded();
+
     unsigned short port;
     struct sockaddr_in client;
     struct sockaddr_in server;
@@ -84,27 +119,9 @@ int main(int argc, char **argv) {
         printf("connected to client");
 
 
-        // TODO: handle connection in thread
-//        pthread_t thread_id;
-//        pthread_create(&thread_id, NULL, handle_client, (void *) ns);
-//        pthread_detach(thread_id);
-
-        size_t buf_size = 1000 * sizeof(char);
-        char *buf = malloc(buf_size);
-        // get client msg
-        if (recv(ns, buf, buf_size, 0) == -1)
-            error("failed to recv");
-        printf("received from client, '%s'\n", buf);
-
-        ssize_t sent = 0;
-        if ((sent = send(ns, resp, strlen(resp), 0)) == -1)
-            error("Failed to send to client");
-        printf("sent response (%zd)\n", sent);
-
-        printf("%s", resp);
-
-        close(ns);
-        free(buf);
+        pthread_t thread_id;
+        pthread_create(&thread_id, NULL, handle_client, (void *) (intptr_t) ns);
+        pthread_detach(thread_id);
     }
 
 
