@@ -9,24 +9,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include "files.h"
-
-// TODO:
-// access files in dir server is running
-// shitty UI for files and directories (loop rendering or smth)
-
-char *getheader(char *key) {
-    // legit scan through the entire http request and grab the value matching that and return it lmafo
-    return "";
-}
-
-char *resp =
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Type: text/html\r\n"
-        "Content-Length: 31\r\n"
-        "\r\n"
-        "<html> <h1>Hello </h1> </html>\n"
-        "\r\n";
-
+#include "http.h"
 
 void error(char *err) {
     printf("%s\n", err);
@@ -48,36 +31,92 @@ int get_port(char *port_str) {
 }
 
 
-// void * _Nullable (* _Nonnull)(void * _Nullable),
 void *handle_client(void *arg) {
-    printf("in handler\n");
     int ns = (int) (intptr_t) arg;
-    printf("in handler2\n");
 
     size_t buf_size = 1000 * sizeof(char);
-    char *buf = malloc(buf_size);
+    char *request_buf = malloc(buf_size);
+
     // get client msg
-    if (recv(ns, buf, buf_size, 0) == -1)
+    if (recv(ns, request_buf, buf_size, 0) == -1)
         error("failed to recv");
-    printf("received from client, '%s'\n", buf);
+
+
+    struct request req;
+    parse_request(request_buf, &req);
+    printf("%s %s\n", http_code_lookup[req.method], req.path);
+
+    if (is_dir(req.path)) {
+        // file not found (failed to populate)
+        char *dir_content_dest_buf = NULL;
+        build_dir_response_body(&dir_content_dest_buf, req.path);
+
+        struct file_info fi;
+
+        char *dest_buf = NULL;
+        fi.file_content = dir_content_dest_buf;
+
+        // cant assign[40]
+        file_ext_to_type(".html", fi.file_type);
+        fi.file_length = strlen(fi.file_content) * sizeof(char);
+        build_http_response(&dest_buf, &fi, OK);
+
+        ssize_t sent = 0;
+        if ((sent = send(ns, dest_buf, strlen(dest_buf), 0)) == -1)
+            error("Failed to send to client");
+
+        printf("sent %lu bytes\n", sent);
+
+        close(ns);
+        free(dest_buf);
+        free(request_buf);
+
+        pthread_exit(NULL);
+    }
+
+
+    struct file_info fi;
+    if (populate_file_struct(&fi, req.path) == EXIT_FAILURE) {
+        // file not found (failed to populate)
+        printf("404 %s not found\n", req.path);
+
+        // 404
+        char *dest_buf = NULL;
+        get_404_response(&dest_buf);
+
+        ssize_t sent = 0;
+        if ((sent = send(ns, dest_buf, strlen(dest_buf), 0)) == -1)
+            error("Failed to send to client");
+        printf("sent %lu bytes\n", sent);
+
+
+        close(ns);
+        free(dest_buf);
+        free(request_buf);
+
+        pthread_exit(NULL);
+    }
+
+    char *dest_buf = NULL;
+    int resp_size = build_http_response(&dest_buf, &fi, OK);
 
     ssize_t sent = 0;
-    if ((sent = send(ns, resp, strlen(resp), 0)) == -1)
+    if ((sent = send(ns, dest_buf, resp_size * sizeof(char) + fi.file_length * sizeof(char), 0)) == -1)
         error("Failed to send to client");
-    printf("sent response (%zd)\n", sent);
+    printf("sent %lu bytes\n", sent);
 
-    printf("%s", resp);
 
     close(ns);
-    free(buf);
+    free(dest_buf);
+    // if we dont read the file, then we cant free it big dog
+    if (fi.file_content != NULL) free(fi.file_content);
+    free(request_buf);
 
     pthread_exit(NULL);
 }
 
 
 int main(int argc, char **argv) {
-    is_loaded();
-
     unsigned short port;
     struct sockaddr_in client;
     struct sockaddr_in server;
@@ -85,10 +124,10 @@ int main(int argc, char **argv) {
     int ns; // socket connected to client
     socklen_t nameLen; // length of client name
 
-    printf("bytes: %lu\n", strlen("<html> <h1>Hello </h1> </html>\n"));
-
     if (argc != 2) {
-        error("Usage: ./server port");
+        char *err_msg = NULL;
+        asprintf(&err_msg, "Usage: %s <port>", argv[0]);
+        error(err_msg);
     }
     port = get_port(argv[1]);
     printf("using port: %u\n", port);
@@ -110,14 +149,12 @@ int main(int argc, char **argv) {
         error("Server failed to listen");
 
 
+    printf("Starting server...\n");
     while (true) {
-        printf("getting new conn\n");
         // accept a connection
         nameLen = sizeof(client);
         if ((ns = accept(s, (struct sockaddr *) &client, &nameLen)) == -1)
             error("Failed to accept client");
-        printf("connected to client");
-
 
         pthread_t thread_id;
         pthread_create(&thread_id, NULL, handle_client, (void *) (intptr_t) ns);

@@ -8,3 +8,4 @@ void truncate(char *string, int max_len) {
         string[max_len] = '\0';
     }
 }
+

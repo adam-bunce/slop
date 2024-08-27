@@ -1,60 +1,66 @@
 #include <stdio.h>
-#include <unistd.h>
 #include <string.h>
-#include <dirent.h>
 #include <stdlib.h>
+#include <sys/stat.h>
+#include <stdbool.h>
+#include "files.h"
 
 #define ARRAY_LEN(arr)     (sizeof (arr) / sizeof(arr[0]))
 #define FILE_NAME_MAX_LEN  15
 #define DIR_FILE_SIZE      10
 
-void is_loaded(void) {
-    printf("loaded files.c or files.h");
+
+void file_ext_to_type(char *ext, char *dest_buf) {
+    if (strcmp(ext, ".html") == 0) strcpy(dest_buf, "text/html");
+    else if (strcmp(ext, ".png") == 0) strcpy(dest_buf, "image/png");
+    else if (strcmp(ext, ".jpg") == 0) strcpy(dest_buf, "image/jpeg");
+    else if (strcmp(ext, ".txt") == 0) strcpy(dest_buf, "text/plain");
+    else
+        strcpy(dest_buf, "application/octet-stream");
+
 }
 
-int ls_in_dir(char *dir, char **dest_buf, size_t buf_size, __uint8_t dir_types) {
-    DIR *folder;
-    struct dirent *entry;
-    int files = 0;
+bool is_dir(char *path) {
+    struct stat path_stat;
+    stat(path, &path_stat);
+    return S_ISDIR(path_stat.st_mode);
+}
 
-    if ((folder = opendir(dir)) == NULL)
-        return -1;
+// NEED TO FREE  file_info.content
+int populate_file_struct(struct file_info *dest, char *file_path) {
+    // set size
+    struct stat st;
+    if (stat(file_path, &st) == -1) {
+        dest->file_content = "404 not found";
+        return EXIT_FAILURE;
+    }
+    dest->file_length = st.st_size;
 
-    while ((entry = readdir(folder)) && files < buf_size) {
-        if (entry->d_type != dir_types) continue;
-
-        truncate(entry->d_name, FILE_NAME_MAX_LEN);
-        // TODO: is this sketchy?
-        dest_buf[files] = entry->d_name;
-        files += 1;
+    // rip out extension set type
+    int pos = 0;
+    while (file_path[pos] != '\0') {
+        pos++;
     }
 
-    return files;
-}
+    // rewind to .
+    while (file_path[pos] != '.') {
+        pos--;
+    }
 
+    // read from .->end (extension)
+    char *ext = malloc(sizeof(char) * 10);
+    int i = 0;
+    while (file_path[pos] != '\0') {
+        ext[i++] = file_path[pos++];
+    }
 
-// get list of directories (str split?)
-void ls_directiors_in_dir() {
+    file_ext_to_type(ext, dest->file_type);
+    free(ext);
 
-}
+    // +1 for \0?
+    dest->file_content = malloc(sizeof(char) * dest->file_length + 1); // NOTE: must free file content after use
+    FILE *f = fopen(file_path, "rb");
+    fread(dest->file_content, dest->file_length, 1, f);
 
-// get file contents from name into buffer
-
-
-int main() {
-    char cwd[1000];
-    if (getcwd(cwd, sizeof(cwd)) == NULL)
-        printf("failed to get cwd\n");
-
-
-    // 5 files max?
-    int files_buf_size = sizeof(char) * FILE_NAME_MAX_LEN * DIR_FILE_SIZE;
-    char **files = malloc(files_buf_size);
-
-    int count = ls_in_dir(cwd, files, files_buf_size, DT_REG);
-    printf("count: %d", count);
-    for (int i = 0; i < count; i++)
-        printf("%d %s\n", i, files[i]);
-
-    free(files);
+    return EXIT_SUCCESS;
 }
